@@ -16,6 +16,7 @@
 #define KELFV_CMD_REGEX_COUNT 4
 #define KELFV_CMD_REGEX_FILE_CMD "\\s*file\\s*[a-zA-Z_]\\s*"
 #define KELFV_CMD_REGEX_HEADER_CMD "\\s*header\\s*"
+#define KELFV_CMD_REGEX_SECTIONS_CMD "\\s*sections\\s*"
 #define KELFV_CMD_REGEX_EXIT_CMD "\\s*exit\\s*"
 #define KELFV_CMD_REGEX_HELP_CMD "\\s*?\\s*"
 
@@ -60,8 +61,10 @@ kelfv_print_banner(void){
 enum kelfv_cmd_regex_name{
     KELFV_CMD_REGEX_FILE_CMD_ENUM = 0,
     KELFV_CMD_REGEX_HEADER_CMD_ENUM,
+    KELFV_CMD_REGEX_SECTIONS_CMD_ENUM,
     KELFV_CMD_REGEX_EXIT_CMD_ENUM,
-    KELFV_CMD_REGEX_HELP_CMD_ENUM
+    KELFV_CMD_REGEX_HELP_CMD_ENUM,
+
 
 };
 
@@ -82,7 +85,8 @@ kelfv_setup_cmd_regexes(void){
     if ( regexSet && !regcomp(&regexSet[KELFV_CMD_REGEX_FILE_CMD_ENUM],KELFV_CMD_REGEX_FILE_CMD,0) &&
              !regcomp(&regexSet[KELFV_CMD_REGEX_HEADER_CMD_ENUM],KELFV_CMD_REGEX_HEADER_CMD,0) &&
              !regcomp(&regexSet[KELFV_CMD_REGEX_EXIT_CMD_ENUM],KELFV_CMD_REGEX_EXIT_CMD,0) &&
-            !regcomp(&regexSet[KELFV_CMD_REGEX_HELP_CMD_ENUM],KELFV_CMD_REGEX_HELP_CMD,0)){
+             !regcomp(&regexSet[KELFV_CMD_REGEX_HELP_CMD_ENUM],KELFV_CMD_REGEX_HELP_CMD,0) &&
+             !regcomp(&regexSet[KELFV_CMD_REGEX_SECTIONS_CMD_ENUM],KELFV_CMD_REGEX_SECTIONS_CMD,0)){
 
         return regexSet;
     }
@@ -239,20 +243,31 @@ kelfv_parse_elf_header(FILE * fp, const u8 * f16bytes){
                 ELFMachine="UN SPARC";
             else if (fileElf32H.e_machine==EM_X86_64)
                 ELFMachine="AMD x86-64 architecture";
-            printf("ELF Machine: %s,       [0x02=SUN SPARC, 0x03=I80386, 0x06=Intel MCU, 0x07=I80860, ...]\n",ELFMachine);
+            printf("ELF Machine: %s(0x%x),       [0x02=SUN SPARC, 0x03=I80386, 0x06=Intel MCU, 0x07=I80860, ...]\n",ELFMachine,fileElf32H.e_machine);
 
             printf("ELF Version: 1, Current version (not important)\n");
 
             printf("Entry Address: 0x%x\n",fileElf32H.e_entry);
 
-            printf("Sections Table Start Address: 0x%x   (%d bytes from start)\n",fileElf32H.e_shoff,fileElf32H.e_shoff);
+            if (fileElf32H.e_shnum) {
 
-            printf("\t %d sections of %d bytes \n",fileElf32H.e_shnum , fileElf32H.e_shentsize);
+                printf("Sections Table Start Address: 0x%x   (%d bytes from start)\n", fileElf32H.e_shoff,
+                       fileElf32H.e_shoff);
 
-            printf("Segments Table Start Address: 0x%x   (%d bytes from start)\n",fileElf32H.e_phoff,fileElf32H.e_phoff);
+                printf("\t %d sections of %d bytes \n", fileElf32H.e_shnum, fileElf32H.e_shentsize);
 
-            printf("\t %d segments of %d bytes \n",fileElf32H.e_phnum , fileElf32H.e_phentsize);
+                printf("Sections' names table entry index: %d\n",fileElf32H.e_shstrndx);
 
+            } else
+                printf("No sections\n");
+
+            if (fileElf32H.e_phnum) {
+                printf("Segments Table Start Address: 0x%x   (%d bytes from start)\n", fileElf32H.e_phoff,
+                       fileElf32H.e_phoff);
+
+                printf("\t %d segments of %d bytes \n", fileElf32H.e_phnum, fileElf32H.e_phentsize);
+            } else
+                printf("No segments\n");
         }
 
 
@@ -289,22 +304,108 @@ kelfv_parse_elf_header(FILE * fp, const u8 * f16bytes){
             else if (fileElf64H.e_machine==EM_X86_64)
                 ELFMachine="AMD x86-64 architecture";
 
-            printf("ELF Machine: %s,       [0x02=SUN SPARC, 0x03=I80386, 0x06=Intel MCU, 0x07=I80860, ...]\n",ELFMachine);
+            printf("ELF Machine: %s(0x%x),       [0x02=SUN SPARC, 0x03=I80386, 0x06=Intel MCU, 0x07=I80860, ...]\n",ELFMachine,fileElf64H.e_machine);
 
             printf("ELF Version: 1, Current version (not important)\n");
 
             printf("Entry Address: 0x%x\n",fileElf64H.e_entry);
 
-            printf("Sections Table Start Address: 0x%x   (%d bytes from start)\n",fileElf64H.e_shoff,fileElf64H.e_shoff);
+            if (fileElf64H.e_shnum) {
 
-            printf("\t %d sections of %d bytes \n",fileElf64H.e_shnum , fileElf64H.e_shentsize);
+                printf("Sections Table Start Address: 0x%x   (%d bytes from start)\n", fileElf64H.e_shoff,
+                       fileElf64H.e_shoff);
 
-            printf("Segments Table Start Address: 0x%x   (%d bytes from start)\n",fileElf64H.e_phoff,fileElf64H.e_phoff);
+                printf("\t %d sections of %d bytes \n", fileElf64H.e_shnum, fileElf64H.e_shentsize);
 
-            printf("\t %d segments of %d bytes \n",fileElf64H.e_phnum , fileElf64H.e_phentsize);
+                printf("Sections' names table entry index: %d\n",fileElf64H.e_shstrndx);
+
+            } else
+                printf("No sections\n");
+
+            if (fileElf64H.e_phnum) {
+                printf("Segments Table Start Address: 0x%x   (%d bytes from start)\n", fileElf64H.e_phoff,
+                       fileElf64H.e_phoff);
+
+                printf("\t %d segments of %d bytes \n", fileElf64H.e_phnum, fileElf64H.e_phentsize);
+            } else
+                printf("No segments\n");
         }
     }
 }
+
+/**
+ * Extracts sections information
+ * @param fp file pointer to the file
+ * @param f16bytes ELF file first 16 bytes
+ */
+static void
+kelfv_parse_sections(FILE * fp, const u8 * f16bytes){
+
+    // Setting the file pointer pointing to the first of the file
+    fseek(fp,0,SEEK_SET);
+
+
+    printf("ELF Sections\n\n");
+
+
+    if (f16bytes[EI_CLASS] == ELFCLASS32){
+
+        // Reading ELF header
+        Elf32_Ehdr elf32Ehdr;
+        fread(&elf32Ehdr,1,sizeof(Elf32_Ehdr),fp);
+
+        // Check if section headers table exist
+        if (! elf32Ehdr.e_shnum)
+            printf("[INFO] No sections exist in this file\n");
+        else{
+            // printing sections
+
+            // Seeking to the start of the section header table
+            fseek(fp,elf32Ehdr.e_shoff,SEEK_SET);
+
+            printf("Section names table index: %d \n",elf32Ehdr.e_shstrndx);
+
+            Elf32_Shdr elf32Shdr;
+
+
+            for ( u32 i=0;i<elf32Ehdr.e_shnum;i++){
+                fread(&elf32Shdr,1,sizeof(Elf32_Shdr),fp);
+                printf("READING\n");
+
+            }
+        }
+    }
+    else if (f16bytes[EI_CLASS] == ELFCLASS64){
+        // Reading ELF header
+        Elf64_Ehdr elf64Ehdr;
+        fread(&elf64Ehdr,1,sizeof(Elf64_Ehdr),fp);
+
+        // Check if section headers table exist
+        if (! elf64Ehdr.e_shnum)
+            printf("[INFO] No sections exist in this file\n");
+        else{
+            // printing sections
+
+            // Seeking to the start of the section header table
+            fseek(fp,elf64Ehdr.e_shoff,SEEK_SET);
+
+            printf("Section names table index: %d \n",elf64Ehdr.e_shstrndx);
+
+            Elf64_Shdr elf64Shdr;
+
+            for ( u32 i=0;i<elf64Ehdr.e_shnum;i++){
+                fread(&elf64Shdr,1,sizeof(Elf64_Shdr),fp);
+                printf("READING\n");
+
+            }
+
+        }
+    }
+    else
+        printf("[ERR] Invalid ELF class 0x%x\n",f16bytes[EI_CLASS]);
+}
+
+
 
 /**
  * Prints help of the program
@@ -317,6 +418,16 @@ kelfv_print_help(void){
     printf("?                         Print help\n");
 
 }
+
+
+/* File pointer of the specified file */
+FILE * ELF_FILE_fp=NULL;
+
+/* ELF First 16 bytes buffer */
+u8 ELFFileF16Bytes[16];
+
+
+
 
 
 
@@ -338,7 +449,8 @@ kelfv_start_prompt(regex_t * cmdRegexes){
     while(1){
         printf("kelfv$ ");
         gets(kelfvInputCmd);
-
+//        printf("%s",kelfvInputCmd);
+//        exit(0);
 
         if (regexec(&cmdRegexes[KELFV_CMD_REGEX_FILE_CMD_ENUM],kelfvInputCmd,0,NULL,0) == 0){
 
@@ -347,6 +459,7 @@ kelfv_start_prompt(regex_t * cmdRegexes){
             // Freeing previous allocated memory for file's path
             if(filePath)
                 free(filePath);
+
             filePath= kelfv_extract_cmd_portions(kelfvInputCmd,1," ");
 
             if (!filePath)
@@ -354,47 +467,48 @@ kelfv_start_prompt(regex_t * cmdRegexes){
             else {
 
                 // Checking for file status
-                if (kelfv_is_file_valid(filePath) != 1) {
-
+                if (kelfv_is_file_valid(filePath) != 1)
                     printf("[ERR] file (%s) whether not exists or not a regular file\n", filePath);
-                    filePath = NULL;
-                } else
-                    printf("[INF] Variable 'file=' set to (%s)\n",filePath);
+                else {
+                    printf("[INF] Variable 'file=' set to (%s)\n", filePath);
+
+                    // Check if an open file exists, if yes, first close it
+                    if (ELF_FILE_fp)
+                        fclose(ELF_FILE_fp);
+
+                    if ( ! (ELF_FILE_fp = fopen(filePath , "rb") ) )
+                        printf("[ERR] Cannot open file (%s)! ",filePath);
+
+                    else{
+                        // Reading the first 16 bytes to determine the validation of ELF and it's type (32/64)
+
+                        if( fread(ELFFileF16Bytes,1,16,ELF_FILE_fp) != 16 )
+                            printf("[ERR] Cannot read 16 bytes from file (%s)! \n",filePath);
+                        else{
+                            //TODO
+                            //   if (! IS_VALID_ELF(fileId))
+                            if(!(ELFFileF16Bytes[0]==0x7f && ELFFileF16Bytes[1]=='E' && ELFFileF16Bytes[2]=='L' &&ELFFileF16Bytes[3]=='F')) {
+                                printf("[ERR] File (%s) is not a valid ELF file, closing file\n", filePath);
+
+                                // Closing file and make file pointer NULL to indicate invalid file
+                                fclose(ELF_FILE_fp);
+                                ELF_FILE_fp = NULL;
+                            }
+                        }
+                    }
+                }
             }
         }
 
         else if (regexec(&cmdRegexes[KELFV_CMD_REGEX_HEADER_CMD_ENUM],kelfvInputCmd,0,NULL,0) == 0){
 
             // First check if a file has been specified or not
-            if (!filePath)
+            if (!ELF_FILE_fp)
                 printf("[ERR] No file has been specified, use 'file FILENAME' cmd\n");
             else{
 
-                // Reading the first 16 bytes to determine the validation of ELF and it's type (32/64)
-                u8 fileId[16];
-
-                FILE * fp;
-
-                if ( ! (fp = fopen(filePath , "rb") ) )
-                    printf("[ERR] Cannot open file (%s)! ",filePath);
-                else{
-
-                    if( fread(fileId,1,16,fp) != 16 )
-                        printf("[ERR] Cannot read 16 bytes from file (%s)! \n",filePath);
-                    else{
-                        //TODO
-                        if(fileId[0]==0x7f && fileId[1]=='E' && fileId[2]=='L' &&fileId[3]=='F'){
-                            // If it is a valid ELF file, then extract its header!
-                            kelfv_parse_elf_header(fp,fileId);
-                        } else
-                     //   if (! IS_VALID_ELF(fileId))
-                            printf("[ERR] File (%s) is not a valid ELF file \n",filePath);
-
-
-                    }
-
-                    fclose(fp);
-                }
+                // If it is a valid ELF file, then extract its header!
+                kelfv_parse_elf_header(ELF_FILE_fp,ELFFileF16Bytes);
 
             }
         }
@@ -405,6 +519,15 @@ kelfv_start_prompt(regex_t * cmdRegexes){
             kelfv_print_help();
 
         }
+
+        else if (regexec(&cmdRegexes[KELFV_CMD_REGEX_SECTIONS_CMD_ENUM],kelfvInputCmd,0,NULL,0) == 0)
+
+            // First check if a file has been specified or not
+            if (!ELF_FILE_fp)
+                printf("[ERR] No file has been specified, use 'file FILENAME' cmd\n");
+            else
+                kelfv_parse_sections(ELF_FILE_fp,ELFFileF16Bytes);
+
         else if (regexec(&cmdRegexes[KELFV_CMD_REGEX_EXIT_CMD_ENUM],kelfvInputCmd,0,NULL,0) == 0)
             return  1;
 
