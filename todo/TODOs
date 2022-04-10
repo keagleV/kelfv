@@ -3,4 +3,5 @@
 [] IS_VALID_ELF macro
 [] multi exit/quit
 [] print output
-
+[] sections link/info
+[] if there is no section header string table?
