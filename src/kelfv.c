@@ -13,7 +13,9 @@
 #define KELFV_CMD_REGEX_HEADER_CMD "\\s*header\\s*"
 #define KELFV_CMD_REGEX_SECTIONS_CMD "\\s*sections\\s*"
 #define KELFV_CMD_REGEX_SYMBOLS_CMD "\\s*symbols\\s*"
+#define KELFV_CMD_REGEX_SEGMENTS_CMD "\\s*segments\\s*"
 
+#define KELFV_CMD_REGEX_CLOSE_FILE_CMD "\\s*close\\s*"
 #define KELFV_CMD_REGEX_EXIT_CMD "\\s*exit\\s*"
 #define KELFV_CMD_REGEX_HELP_CMD "\\s*?\\s*"
 
@@ -60,6 +62,8 @@ enum kelfv_cmd_regex_name{
     KELFV_CMD_REGEX_HEADER_CMD_ENUM,
     KELFV_CMD_REGEX_SECTIONS_CMD_ENUM,
     KELFV_CMD_REGEX_SYMBOLS_CMD_ENUM,
+    KELFV_CMD_REGEX_SEGMENTS_CMD_ENUM,
+    KELFV_CMD_REGEX_CLOSE_FILE_CMD_ENUM,
     KELFV_CMD_REGEX_EXIT_CMD_ENUM,
     KELFV_CMD_REGEX_HELP_CMD_ENUM,
 
@@ -84,7 +88,9 @@ kelfv_setup_cmd_regexes(void){
              !regcomp(&regexSet[KELFV_CMD_REGEX_EXIT_CMD_ENUM],KELFV_CMD_REGEX_EXIT_CMD,0) &&
              !regcomp(&regexSet[KELFV_CMD_REGEX_HELP_CMD_ENUM],KELFV_CMD_REGEX_HELP_CMD,0) &&
              !regcomp(&regexSet[KELFV_CMD_REGEX_SECTIONS_CMD_ENUM],KELFV_CMD_REGEX_SECTIONS_CMD,0) &&
-             !regcomp(&regexSet[KELFV_CMD_REGEX_SYMBOLS_CMD_ENUM],KELFV_CMD_REGEX_SYMBOLS_CMD,0)){
+             !regcomp(&regexSet[KELFV_CMD_REGEX_SYMBOLS_CMD_ENUM],KELFV_CMD_REGEX_SYMBOLS_CMD,0) &&
+             !regcomp(&regexSet[KELFV_CMD_REGEX_CLOSE_FILE_CMD_ENUM],KELFV_CMD_REGEX_CLOSE_FILE_CMD,0) &&
+            !regcomp(&regexSet[KELFV_CMD_REGEX_SEGMENTS_CMD_ENUM],KELFV_CMD_REGEX_SEGMENTS_CMD,0)){
 
         return regexSet;
     }
@@ -457,6 +463,14 @@ kelfv_resolve_section_flag(u32 sectionFlag, u8 * sectionFlags){
 }
 
 
+/**
+ * This function resolves symbol's type and binding
+ * @param symbolInfo Info member of the symbol entry
+ * @param symbolType A buffer to write type into it
+ * @param typeLen Size of the buffer for the type
+ * @param symbolBinding A buffer to write binding into it
+ * @param bindingLen Size of the buffer for the binding
+ */
 static void
 kelfv_resolve_symbol_type_binding(u8 symbolInfo , u8 * symbolType, u8 typeLen , u8 * symbolBinding, u8 bindingLen){
 
@@ -469,7 +483,9 @@ kelfv_resolve_symbol_type_binding(u8 symbolInfo , u8 * symbolType, u8 typeLen , 
     bzero(symbolType,typeLen);
     bzero(symbolBinding, bindingLen);
 
-    if (symbolTypeNumeric==STT_OBJECT)
+    if (symbolTypeNumeric==STT_NOTYPE)
+        strcpy(symbolType,"No-Type");
+    else if (symbolTypeNumeric==STT_OBJECT)
         strcpy(symbolType,"Object");
     else if (symbolTypeNumeric==STT_FUNC)
         strcpy(symbolType,"Function");
@@ -512,11 +528,11 @@ kelfv_resolve_symbol_type_binding(u8 symbolInfo , u8 * symbolType, u8 typeLen , 
 
 /**
  * Extracts sections information
- * @param fp file pointer to the file
+ * @param fp File pointer to the file
  * @param f16bytes ELF file first 16 bytes
  */
 static void
-kelfv_parse_sections(FILE * fp, const u8 * f16bytes){
+kelfv_print_sections(FILE * fp, const u8 * f16bytes){
 
     // Setting the file pointer pointing to the first of the file
     fseek(fp,0,SEEK_SET);
@@ -678,6 +694,41 @@ kelfv_parse_sections(FILE * fp, const u8 * f16bytes){
 }
 
 
+
+/**
+ * This function will resolve the st_other field of symbol entry
+ * @param symbolOtherMem Symbol's st_other value
+ * @param symbolOther   Buffer to copy the string to
+ * @param len   length of the allocated buffer
+ */
+static void
+kelfv_resolve_symbol_other(u8 symbolOtherMem , u8 * symbolOther , u8 len){
+
+    // Zeroing out the buffer
+    bzero(symbolOther , len);
+
+    symbolOtherMem &= 0x03;
+
+    if (symbolOtherMem == STV_DEFAULT)
+        strcpy(symbolOther,"Default");
+    else if (symbolOtherMem == STV_INTERNAL)
+        strcpy(symbolOther,"Internal");
+    else if (symbolOtherMem == STV_HIDDEN)
+        strcpy(symbolOther,"Hidden");
+    else if (symbolOtherMem == STV_PROTECTED)
+        strcpy(symbolOther,"Protected");
+    else
+        strcpy(symbolOther,"Unknown");
+
+}
+
+
+
+/**
+ * This function prints symbols of each section that is of symtab type
+ * @param fp File pointer to the file
+ * @param f16bytes ELF file first 16 bytes
+ */
 static void
 kelfv_print_symbols(FILE * fp , const u8 * f16bytes){
 
@@ -686,6 +737,8 @@ kelfv_print_symbols(FILE * fp , const u8 * f16bytes){
     fseek(fp,0,SEEK_SET);
 
     if (f16bytes[EI_CLASS] == ELFCLASS32){
+
+
 
         // Reading ELF header
         Elf32_Ehdr elf32Ehdr;
@@ -732,25 +785,62 @@ kelfv_print_symbols(FILE * fp , const u8 * f16bytes){
 
                 for (u32 i = 0; i < elf32Ehdr.e_shnum; i++) {
 
-                    fread(&elf32Shdr, 1, sizeof(Elf64_Shdr), fp);
+                    fread(&elf32Shdr, 1, sizeof(Elf32_Shdr), fp);
 
                     if (elf32Shdr.sh_type == SHT_SYMTAB) {
 
-                        printf("Symbols of section '%s' are: \n",shStrings+elf32Shdr.sh_name);
+                        printf("\nSymbols of section '%s' are: \n",shStrings+elf32Shdr.sh_name);
+                        printf("-------------------------------\n");
+
+
+                        /* Names of symbols are in string table section */
+
+                        // First reading strtab section
+                        Elf32_Shdr strtabSecHeader;
+
+                        // Seeking to strtab section entry, link member contains the
+                        // index of strtab.
+                        fseek(fp,elf32Ehdr.e_shoff + elf32Ehdr.e_shentsize*elf32Shdr.sh_link ,SEEK_SET);
+                        fread(&strtabSecHeader,1,sizeof(Elf32_Shdr),fp);
+
+                        // Reading symbols names into a buffer
+                        u8 * symbolsNames = malloc(strtabSecHeader.sh_size);
+                        fseek(fp,strtabSecHeader.sh_offset,SEEK_SET);
+                        fread(symbolsNames,1,strtabSecHeader.sh_size,fp);
+
 
                         // Seeking to the symbol table of the found section
                         fseek(fp,elf32Shdr.sh_offset,SEEK_SET);
 
-                        // Print symbols of the table
+                        // Symbol entry
+                        Elf32_Sym elf32Sym;
+                        printf("%-10s%-10s%-15s%-15s%-25s%-10s\n", "Value", "Size","Type","Binding","Index","Name");
 
+                        u8 symbolBinding[10];
+                        u8 symbolType[10];
+                        u8 symbolOther[10];
 
+                        // Number of symbols is total size divided by entry size
+                        for ( u32 i=0; i< elf32Shdr.sh_size / elf32Shdr.sh_entsize ;i++){
+
+                            fread(&elf32Sym,1,sizeof(Elf32_Sym),fp);
+
+                            kelfv_resolve_symbol_type_binding(elf32Sym.st_info,symbolType,10,symbolBinding,10);
+
+                            kelfv_resolve_symbol_other(elf32Sym.st_other,symbolOther,10);
+
+                            printf("0x%-10x0x%-10x%-10s%-10s%-10d%-10s%-25s\n",elf32Sym.st_value,elf32Sym.st_size,symbolType,symbolBinding,elf32Sym.st_shndx,symbolOther,symbolsNames + elf32Sym.st_name);
+                        }
+
+                        // Freeing allocated memory
+                        free(symbolsNames);
                     }
                 }
-
             }
         }
 
     }
+
     else if (f16bytes[EI_CLASS]== ELFCLASS64){
 
         // Reading ELF header
@@ -801,7 +891,7 @@ kelfv_print_symbols(FILE * fp , const u8 * f16bytes){
                     fread(&elf64Shdr, 1, sizeof(Elf64_Shdr), fp);
 
                     if (elf64Shdr.sh_type == SHT_SYMTAB) {
-
+                        //TODO, index of symbols
                         printf("\nSymbols of section '%s' are: \n",shStrings+elf64Shdr.sh_name);
                         printf("-------------------------------\n");
 
@@ -827,17 +917,21 @@ kelfv_print_symbols(FILE * fp , const u8 * f16bytes){
 
                         // Symbol entry
                         Elf64_Sym elf64Sym;
-                        printf("%-10s%-10s%-15s%-15s%-25s\n", "Value", "Size","Type","Binding","Name");
+                        printf("%-10s%-10s%-15s%-15s%-25s%-10s%-10s\n", "Value", "Size","Type","Binding","Index","Visibility","Name");
 
                         u8 symbolBinding[10];
                         u8 symbolType[10];
+                        u8 symbolOther[10];
 
                         // Number of symbols is total size divided by entry size
                         for ( u32 i=0; i< elf64Shdr.sh_size / elf64Shdr.sh_entsize ;i++){
+
                             fread(&elf64Sym,1,sizeof(Elf64_Sym),fp);
 
                             kelfv_resolve_symbol_type_binding(elf64Sym.st_info,symbolType,10,symbolBinding,10);
-                            printf("0x%-10x0x%-10x%-10s%-10s%-25s\n",elf64Sym.st_value,elf64Sym.st_size,symbolType,symbolBinding,symbolsNames + elf64Sym.st_name);
+                            kelfv_resolve_symbol_other(elf64Sym.st_other,symbolOther,10);
+
+                            printf("0x%-10x0x%-10x%-10s%-10s%-10d%-10s%-25s\n",elf64Sym.st_value,elf64Sym.st_size,symbolType,symbolBinding,elf64Sym.st_shndx,symbolOther,symbolsNames + elf64Sym.st_name);
                         }
 
                         // Freeing allocated memory
@@ -847,11 +941,162 @@ kelfv_print_symbols(FILE * fp , const u8 * f16bytes){
             }
         }
     }
+
     else
         printf("[ERR] Invalid ELF class 0x%x\n",f16bytes[EI_CLASS]);
 
 }
 
+
+/**
+ * This function resolves the segment type string
+ * @param segmentType Numeric value of the segment's type
+ * @param segmentTypeStr A buffer to write string to it
+ * @param len The length of the buffer
+ */
+static void
+kelfv_resolve_segment_type(u32 segmentType , u8 * segmentTypeStr, u8 len){
+
+    // Zeroing out the buffer
+    bzero(segmentTypeStr,len);
+
+    if (segmentType== PT_NULL)
+        strcpy(segmentTypeStr,"NULL");
+    else  if (segmentType== PT_LOAD)
+        strcpy(segmentTypeStr,"LOAD");
+    else  if (segmentType== PT_DYNAMIC)
+        strcpy(segmentTypeStr,"DYN");
+    else  if (segmentType== PT_INTERP)
+        strcpy(segmentTypeStr,"INTERP");
+    else  if (segmentType== PT_NOTE)
+        strcpy(segmentTypeStr,"NOTE");
+    else  if (segmentType== PT_SHLIB)
+        strcpy(segmentTypeStr,"SHLIB");
+    else  if (segmentType== PT_PHDR)
+        strcpy(segmentTypeStr,"PHDR");
+    else if (segmentType== PT_GNU_EH_FRAME)
+        strcpy(segmentTypeStr,"GNU-FRAME");
+    else if (segmentType== PT_GNU_STACK)
+        strcpy(segmentTypeStr,"GNU-STACK");
+    else if (segmentType== PT_GNU_RELRO)
+        strcpy(segmentTypeStr,"GNU-RELRO");
+
+
+    else if (segmentType>= 0x70000000 && segmentType <=0x7fffffff)
+        strcpy(segmentTypeStr,"OS-SPEC");
+    else
+        strcpy(segmentTypeStr,"UNK");
+
+
+}
+
+
+/**
+ * This function resolves the flags for the segments
+ * @param segmentFlag Numeric value of the segment's flag
+ * @param segmentFlagStr A buffer to write string into it
+ * @param len Length of the buffer
+ */
+static void
+kelfv_resolve_segment_flag(u32 segmentFlag , u8 * segmentFlagStr , u8 len){
+
+    // Zeroing out the buffer
+    bzero(segmentFlagStr,len);
+
+    // String index to write flags
+    u8 index=0;
+
+    if (segmentFlag&PF_R)
+        segmentFlagStr[index++]='R';
+    if (segmentFlag & PF_W)
+        segmentFlagStr[index++]='W';
+    if (segmentFlag&PF_X)
+        segmentFlagStr[index++]='X';
+
+}
+
+
+static void
+kelfv_print_segments(FILE * fp , const u8 * f16bytes){
+
+    // Setting the file pointer pointing to the first of the file
+    fseek(fp,0,SEEK_SET);
+
+    if (f16bytes[EI_CLASS] == ELFCLASS32) {
+
+        // Reading ELF header
+        Elf32_Ehdr elf32Ehdr;
+        fread(&elf32Ehdr,1,sizeof(Elf32_Ehdr),fp);
+
+        // Check if segment headers table exist
+        if (! elf32Ehdr.e_phnum )
+            printf("[INFO] No segments exist in this file\n");
+        else {
+            // Seeking to the segments table
+            fseek(fp, elf32Ehdr.e_phoff , SEEK_SET);
+
+            // Reading segments
+            Elf32_Phdr elf32Phdr;
+            printf("%-10s%-10s%-15s%-15s%-15s%-25s%-10s%-10s\n", "Type", "Offset","VirAddr","PhyAddr","fSize","mSize","Flags","Align");
+
+            u8 segmentType[10];
+            u8 segmentFlag[10];
+
+            for ( u32 i=0 ; i<elf32Ehdr.e_phnum ; i++ ){
+
+                fread(&elf32Phdr,1,sizeof(Elf32_Phdr),fp);
+
+                kelfv_resolve_segment_type(elf32Phdr.p_type,segmentType,10);
+                kelfv_resolve_segment_flag(elf32Phdr.p_flags,segmentFlag,10);
+
+                printf("%-10s0x%-10x0x%-15x0x%-15x%-15d%-25d%-10s0x%-10x\n", segmentType,elf32Phdr.p_offset,elf32Phdr.p_vaddr,elf32Phdr.p_paddr,elf32Phdr.p_filesz,elf32Phdr.p_memsz,segmentFlag,elf32Phdr.p_align);
+
+            }
+
+
+        }
+
+    }
+    else if (f16bytes[EI_CLASS] == ELFCLASS64){
+
+        // Reading ELF header
+        Elf64_Ehdr elf64Ehdr;
+        fread(&elf64Ehdr,1,sizeof(Elf64_Ehdr),fp);
+
+        // Check if segment headers table exist
+        if (! elf64Ehdr.e_phnum )
+            printf("[INFO] No segments exist in this file\n");
+        else {
+            // Seeking to the segments table
+            fseek(fp, elf64Ehdr.e_phoff , SEEK_SET);
+
+            // Reading segments
+            Elf64_Phdr elf64Phdr;
+            printf("%-10s%-10s%-15s%-15s%-15s%-25s%-10s%-10s\n", "Type", "Offset","VirAddr","PhyAddr","fSize","mSize","Flags","Align");
+
+            u8 segmentType[10];
+            u8 segmentFlag[10];
+
+            for ( u32 i=0 ; i<elf64Ehdr.e_phnum ; i++ ){
+
+                fread(&elf64Phdr,1,sizeof(Elf64_Phdr),fp);
+
+                kelfv_resolve_segment_type(elf64Phdr.p_type,segmentType,10);
+                kelfv_resolve_segment_flag(elf64Phdr.p_flags,segmentFlag,10);
+
+                printf("%-10s0x%-10x0x%-15x0x%-15x%-15d%-25d%-10s0x%-10x\n", segmentType,elf64Phdr.p_offset,elf64Phdr.p_vaddr,elf64Phdr.p_paddr,elf64Phdr.p_filesz,elf64Phdr.p_memsz,segmentFlag,elf64Phdr.p_align);
+
+            }
+
+
+        }
+
+
+    }
+    else
+        printf("[ERR] Invalid ELF class 0x%x\n",f16bytes[EI_CLASS]);
+
+}
 
 
 /**
@@ -863,7 +1108,9 @@ kelfv_print_help(void){
     printf("file FILENAME             Specifying filename\n");
     printf("header                    Print ELF header\n");
     printf("sections                  Print ELF sections\n");
-    printf("symbols                  Print ELF symbols\n");
+    printf("symbols                   Print ELF symbols\n");
+    printf("close                     Close specified file\n");
+    printf("exit                      Exit kelfv\n");
 
     printf("?                         Print help\n");
 
@@ -911,6 +1158,7 @@ kelfv_start_prompt(regex_t * cmdRegexes){
             // Freeing previous allocated memory for file's path
             if(filePath)
                 free(filePath);
+
 
             filePath= kelfv_extract_cmd_portions(kelfvInputCmd,1," ");
 
@@ -978,7 +1226,16 @@ kelfv_start_prompt(regex_t * cmdRegexes){
             if (!ELF_FILE_fp)
                 printf("[ERR] No file has been specified, use 'file FILENAME' cmd\n");
             else
-                kelfv_parse_sections(ELF_FILE_fp, ELFFileF16Bytes);
+                kelfv_print_sections(ELF_FILE_fp, ELFFileF16Bytes);
+        }
+
+        else if (regexec(&cmdRegexes[KELFV_CMD_REGEX_SEGMENTS_CMD_ENUM],kelfvInputCmd,0,NULL,0) == 0) {
+
+            // First check if a file has been specified or not
+            if (!ELF_FILE_fp)
+                printf("[ERR] No file has been specified, use 'file FILENAME' cmd\n");
+            else
+                kelfv_print_segments(ELF_FILE_fp, ELFFileF16Bytes);
         }
 
         else if (regexec(&cmdRegexes[KELFV_CMD_REGEX_SYMBOLS_CMD_ENUM],kelfvInputCmd,0,NULL,0) == 0){
@@ -990,8 +1247,27 @@ kelfv_start_prompt(regex_t * cmdRegexes){
                 kelfv_print_symbols(ELF_FILE_fp, ELFFileF16Bytes);
         }
 
-        else if (regexec(&cmdRegexes[KELFV_CMD_REGEX_EXIT_CMD_ENUM],kelfvInputCmd,0,NULL,0) == 0)
+        else if (regexec(&cmdRegexes[KELFV_CMD_REGEX_CLOSE_FILE_CMD_ENUM],kelfvInputCmd,0,NULL,0) == 0){
+
+            if (ELF_FILE_fp){
+                fclose(ELF_FILE_fp);
+                ELF_FILE_fp = NULL;
+                printf("[INFO] File closed\n");
+            } else
+                printf("[INFO] No file is open\n");
+        }
+
+
+        else if (regexec(&cmdRegexes[KELFV_CMD_REGEX_EXIT_CMD_ENUM],kelfvInputCmd,0,NULL,0) == 0){
+
+            if (ELF_FILE_fp) {
+                fclose(ELF_FILE_fp);
+                ELF_FILE_fp = NULL;
+                printf("[INFO] File closed\n");
+            }
             return  1;
+
+        }
 
 
     }

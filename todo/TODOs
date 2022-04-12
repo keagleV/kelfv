@@ -2,6 +2,9 @@
 [] Fixing gets and reading I/O ( security )
 [] IS_VALID_ELF macro
 [] multi exit/quit
+[] multi help/?
 [] print output
 [] sections link/info
 [] if there is no section header string table?
+[] Add libraries of symbols in front of them
+[] section index ( since we use referencing to them in other commands )
