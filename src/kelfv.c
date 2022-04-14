@@ -13,7 +13,9 @@
 #define KELFV_CMD_REGEX_HEADER_CMD "\\s*header\\s*"
 #define KELFV_CMD_REGEX_SECTIONS_CMD "\\s*sections\\s*"
 #define KELFV_CMD_REGEX_SYMBOLS_CMD "\\s*symbols\\s*"
+#define KELFV_CMD_REGEX_DYNAMIC_SYMBOLS_CMD "\\s*dynsymbols\\s*"
 #define KELFV_CMD_REGEX_SEGMENTS_CMD "\\s*segments\\s*"
+#define KELFV_CMD_REGEX_RELOCS_CMD "\\s*relocs\\s*"
 
 #define KELFV_CMD_REGEX_CLOSE_FILE_CMD "\\s*close\\s*"
 #define KELFV_CMD_REGEX_EXIT_CMD "\\s*exit\\s*"
@@ -62,7 +64,9 @@ enum kelfv_cmd_regex_name{
     KELFV_CMD_REGEX_HEADER_CMD_ENUM,
     KELFV_CMD_REGEX_SECTIONS_CMD_ENUM,
     KELFV_CMD_REGEX_SYMBOLS_CMD_ENUM,
+    KELFV_CMD_REGEX_DYNAMIC_SYMBOLS_CMD_ENUM,
     KELFV_CMD_REGEX_SEGMENTS_CMD_ENUM,
+    KELFV_CMD_REGEX_RELOCS_CMD_ENUM,
     KELFV_CMD_REGEX_CLOSE_FILE_CMD_ENUM,
     KELFV_CMD_REGEX_EXIT_CMD_ENUM,
     KELFV_CMD_REGEX_HELP_CMD_ENUM,
@@ -90,7 +94,9 @@ kelfv_setup_cmd_regexes(void){
              !regcomp(&regexSet[KELFV_CMD_REGEX_SECTIONS_CMD_ENUM],KELFV_CMD_REGEX_SECTIONS_CMD,0) &&
              !regcomp(&regexSet[KELFV_CMD_REGEX_SYMBOLS_CMD_ENUM],KELFV_CMD_REGEX_SYMBOLS_CMD,0) &&
              !regcomp(&regexSet[KELFV_CMD_REGEX_CLOSE_FILE_CMD_ENUM],KELFV_CMD_REGEX_CLOSE_FILE_CMD,0) &&
-            !regcomp(&regexSet[KELFV_CMD_REGEX_SEGMENTS_CMD_ENUM],KELFV_CMD_REGEX_SEGMENTS_CMD,0)){
+             !regcomp(&regexSet[KELFV_CMD_REGEX_SEGMENTS_CMD_ENUM],KELFV_CMD_REGEX_SEGMENTS_CMD,0) &&
+             !regcomp(&regexSet[KELFV_CMD_REGEX_DYNAMIC_SYMBOLS_CMD_ENUM],KELFV_CMD_REGEX_DYNAMIC_SYMBOLS_CMD,0) &&
+             !regcomp(&regexSet[KELFV_CMD_REGEX_RELOCS_CMD_ENUM],KELFV_CMD_REGEX_RELOCS_CMD,0)){
 
         return regexSet;
     }
@@ -611,15 +617,11 @@ kelfv_print_sections(FILE * fp, const u8 * f16bytes){
                 }
 
                 free(shStrings);
-
-
             }
-
-
-
         }
     }
     else if (f16bytes[EI_CLASS] == ELFCLASS64){
+
         // Reading ELF header
         Elf64_Ehdr elf64Ehdr;
         fread(&elf64Ehdr,1,sizeof(Elf64_Ehdr),fp);
@@ -728,17 +730,16 @@ kelfv_resolve_symbol_other(u8 symbolOtherMem , u8 * symbolOther , u8 len){
  * This function prints symbols of each section that is of symtab type
  * @param fp File pointer to the file
  * @param f16bytes ELF file first 16 bytes
+ * @param symbolSectionType Type of the symbol section ( dynamic or not )
  */
 static void
-kelfv_print_symbols(FILE * fp , const u8 * f16bytes){
+kelfv_print_symbols(FILE * fp , const u8 * f16bytes , u8 symbolSectionType){
 
 
     // Setting the file pointer pointing to the first of the file
     fseek(fp,0,SEEK_SET);
 
     if (f16bytes[EI_CLASS] == ELFCLASS32){
-
-
 
         // Reading ELF header
         Elf32_Ehdr elf32Ehdr;
@@ -787,7 +788,7 @@ kelfv_print_symbols(FILE * fp , const u8 * f16bytes){
 
                     fread(&elf32Shdr, 1, sizeof(Elf32_Shdr), fp);
 
-                    if (elf32Shdr.sh_type == SHT_SYMTAB) {
+                    if (elf32Shdr.sh_type == symbolSectionType) {
 
                         printf("\nSymbols of section '%s' are: \n",shStrings+elf32Shdr.sh_name);
                         printf("-------------------------------\n");
@@ -826,10 +827,14 @@ kelfv_print_symbols(FILE * fp , const u8 * f16bytes){
                             fread(&elf32Sym,1,sizeof(Elf32_Sym),fp);
 
                             kelfv_resolve_symbol_type_binding(elf32Sym.st_info,symbolType,10,symbolBinding,10);
-
                             kelfv_resolve_symbol_other(elf32Sym.st_other,symbolOther,10);
 
-                            printf("0x%-10x0x%-10x%-10s%-10s%-10d%-10s%-25s\n",elf32Sym.st_value,elf32Sym.st_size,symbolType,symbolBinding,elf32Sym.st_shndx,symbolOther,symbolsNames + elf32Sym.st_name);
+
+                            if ( elf32Sym.st_shndx == 0 )
+                                printf("0x%-10x0x%-10x%-10s%-10s%-10s%-10s%-25s\n",elf32Sym.st_value,elf32Sym.st_size,symbolType,symbolBinding,"UNK",symbolOther,symbolsNames + elf32Sym.st_name);
+                            else
+                                printf("0x%-10x0x%-10x%-10s%-10s%-10d%-10s%-25s\n",elf32Sym.st_value,elf32Sym.st_size,symbolType,symbolBinding,elf32Sym.st_shndx,symbolOther,symbolsNames + elf32Sym.st_name);
+
                         }
 
                         // Freeing allocated memory
@@ -890,7 +895,7 @@ kelfv_print_symbols(FILE * fp , const u8 * f16bytes){
 
                     fread(&elf64Shdr, 1, sizeof(Elf64_Shdr), fp);
 
-                    if (elf64Shdr.sh_type == SHT_SYMTAB) {
+                    if (elf64Shdr.sh_type == symbolSectionType) {
                         //TODO, index of symbols
                         printf("\nSymbols of section '%s' are: \n",shStrings+elf64Shdr.sh_name);
                         printf("-------------------------------\n");
@@ -917,7 +922,7 @@ kelfv_print_symbols(FILE * fp , const u8 * f16bytes){
 
                         // Symbol entry
                         Elf64_Sym elf64Sym;
-                        printf("%-10s%-10s%-15s%-15s%-25s%-10s%-10s\n", "Value", "Size","Type","Binding","Index","Visibility","Name");
+                        printf("%-10s%-10s%-15s%-15s%-25s%-10s%-15s\n", "Value", "Size","Type","Binding","Index","Visibility","Name");
 
                         u8 symbolBinding[10];
                         u8 symbolType[10];
@@ -931,7 +936,11 @@ kelfv_print_symbols(FILE * fp , const u8 * f16bytes){
                             kelfv_resolve_symbol_type_binding(elf64Sym.st_info,symbolType,10,symbolBinding,10);
                             kelfv_resolve_symbol_other(elf64Sym.st_other,symbolOther,10);
 
-                            printf("0x%-10x0x%-10x%-10s%-10s%-10d%-10s%-25s\n",elf64Sym.st_value,elf64Sym.st_size,symbolType,symbolBinding,elf64Sym.st_shndx,symbolOther,symbolsNames + elf64Sym.st_name);
+                            if ( elf64Sym.st_shndx == 0 )
+                                printf("0x%-10x0x%-10x%-10s%-10s%-10s%-10s%-25s\n",elf64Sym.st_value,elf64Sym.st_size,symbolType,symbolBinding,"UNK",symbolOther,symbolsNames + elf64Sym.st_name);
+                            else
+                                printf("0x%-10x0x%-10x%-10s%-10s%-10d%-10s%-25s\n",elf64Sym.st_value,elf64Sym.st_size,symbolType,symbolBinding,elf64Sym.st_shndx,symbolOther,symbolsNames + elf64Sym.st_name);
+
                         }
 
                         // Freeing allocated memory
@@ -946,6 +955,9 @@ kelfv_print_symbols(FILE * fp , const u8 * f16bytes){
         printf("[ERR] Invalid ELF class 0x%x\n",f16bytes[EI_CLASS]);
 
 }
+
+
+
 
 
 /**
@@ -991,6 +1003,10 @@ kelfv_resolve_segment_type(u32 segmentType , u8 * segmentTypeStr, u8 len){
 }
 
 
+
+
+
+
 /**
  * This function resolves the flags for the segments
  * @param segmentFlag Numeric value of the segment's flag
@@ -1016,6 +1032,14 @@ kelfv_resolve_segment_flag(u32 segmentFlag , u8 * segmentFlagStr , u8 len){
 }
 
 
+
+
+
+/**
+ * This function prints the segments of the ELF file
+ * @param fp File pointer to the file
+ * @param f16bytes ELF file first 16 bytes
+ */
 static void
 kelfv_print_segments(FILE * fp , const u8 * f16bytes){
 
@@ -1099,6 +1123,248 @@ kelfv_print_segments(FILE * fp , const u8 * f16bytes){
 }
 
 
+
+/**
+ * This function resolves the string representation of relocation type
+ * @param relocationType Numeric value of relocation's type
+ * @param buffer A buffer to hold the string
+ * @param len Length of the buffer
+ */
+static void
+kelfv_resolve_relocation_type(u32 relocationType, u8 * buffer , u8 len){
+
+    // Zeroing out the buffer
+    bzero(buffer,len);
+
+    if (relocationType == R_X86_64_NONE)
+        strcpy(buffer,"R_X86_64_NONE");
+    else if (relocationType == R_X86_64_64)
+        strcpy(buffer,"R_X86_64_64");
+    else if (relocationType == R_X86_64_PC32)
+        strcpy(buffer,"R_X86_64_PC32");
+    else if (relocationType == R_X86_64_GOT32)
+        strcpy(buffer,"R_X86_64_GOT32");
+
+    else if (relocationType == R_X86_64_PLT32)
+        strcpy(buffer,"R_X86_64_PLT32");
+    else if (relocationType == R_X86_64_COPY)
+        strcpy(buffer,"R_X86_64_COPY");
+    else if (relocationType == R_X86_64_GLOB_DAT)
+        strcpy(buffer,"R_X86_64_GLOB_DAT");
+
+    else if (relocationType == R_X86_64_JUMP_SLOT)
+        strcpy(buffer,"R_X86_64_JUMP_SLOT");
+
+    else if (relocationType == R_X86_64_RELATIVE)
+        strcpy(buffer,"R_X86_64_RELATIVE");
+
+
+    else if (relocationType == R_X86_64_32)
+        strcpy(buffer,"R_X86_64_32");
+    else if (relocationType == R_X86_64_32S)
+        strcpy(buffer,"R_X86_64_32S");
+    else if (relocationType == R_X86_64_16)
+        strcpy(buffer,"R_X86_64_16");
+    else if (relocationType == R_X86_64_PC16)
+        strcpy(buffer,"R_X86_64_PC16");
+    else if (relocationType == R_X86_64_8)
+        strcpy(buffer,"R_X86_64_8");
+    else
+        strcpy(buffer,"UNK");
+
+}
+
+
+
+
+/**
+ * This function extracts relocation entries of a particular relocation section
+ * @param fp File pointer to the file
+ * @param elfClass ELF class (32/64 bit)
+ * @param relocationEntriesOffset Offset(Start address) of relocation entries
+ * @param sectionSize Total size of relocation entries
+ * @param relocationType Relocation type (REL,RELA)
+ */
+static void
+kelfv_extract_relocation_entries(FILE * fp , u8 elfClass ,u64 relocationEntriesOffset, u64 sectionSize , u8 relocationType ){
+
+    // Saving the current offset of the file pointer
+    u64 currOff = ftell(fp);
+
+    // Number of relocation entries
+    u64 numEntries;
+
+    u8 relocationTypeStr[20];
+
+    // Seeking to the given offset
+    fseek(fp,relocationEntriesOffset,SEEK_SET);
+
+    if (relocationType == SHT_REL ){
+
+        printf("Relocations of type 'REL': \n");
+
+        printf("%-10s%-20s%-10s%-10s\n", "Offset", "Info","Type","SecIdx");
+
+        if ( elfClass == ELFCLASS32){
+
+            Elf32_Rel elf32Rel;
+            numEntries = sectionSize / sizeof(Elf32_Rel);
+
+            for( u32 i=0 ;i < numEntries; i++){
+                fread(&elf32Rel , 1 , sizeof(Elf32_Rel) , fp);
+
+                kelfv_resolve_relocation_type(ELF32_R_TYPE(elf32Rel.r_info),relocationTypeStr,20);
+
+                printf("0x%-10x0x%-10x%-20s%-10d\n", elf32Rel.r_offset, elf32Rel.r_info,relocationTypeStr,ELF32_R_SYM(elf32Rel.r_info));
+            }
+        }
+        else if ( elfClass == ELFCLASS64){
+
+            Elf64_Rel elf64Rel;
+            numEntries = sectionSize / sizeof(Elf64_Rel);
+
+            for( u32 i=0 ;i < numEntries; i++){
+                fread(&elf64Rel , 1 , sizeof(Elf64_Rel) , fp);
+
+                kelfv_resolve_relocation_type(ELF64_R_TYPE(elf64Rel.r_info),relocationTypeStr,20);
+
+                printf("0x%-10x0x%-10x%-20s%-10d\n", elf64Rel.r_offset, elf64Rel.r_info,relocationTypeStr,ELF64_R_SYM(elf64Rel.r_info));
+
+
+            }
+        }
+    }
+    else if (relocationType == SHT_RELA ){
+
+        printf("Relocations of type 'RELA': \n");
+
+        printf("%-10s%-20s%-10s%-10s\n", "Offset", "Info","Type","SecIdx");
+
+        if ( elfClass == ELFCLASS32){
+
+            Elf32_Rela elf32Rela;
+            numEntries = sectionSize / sizeof(Elf32_Rela);
+
+
+            for( u32 i=0 ;i < numEntries; i++){
+                fread(&elf32Rela , 1 , sizeof(Elf32_Rel) , fp);
+
+                kelfv_resolve_relocation_type(ELF32_R_TYPE(elf32Rela.r_info),relocationTypeStr,20);
+
+                printf("0x%-10x0x%-10x%-20s%-10d\n", elf32Rela.r_offset, elf32Rela.r_info,relocationTypeStr,ELF32_R_SYM(elf32Rela.r_info));
+
+            }
+        }
+        else if ( elfClass == ELFCLASS64){
+
+            Elf64_Rela elf64Rela;
+            numEntries = sectionSize / sizeof(Elf64_Rela);
+
+            for( u32 i=0 ;i < numEntries; i++){
+                fread(&elf64Rela , 1 , sizeof(Elf64_Rela) , fp);
+
+                kelfv_resolve_relocation_type(ELF64_R_TYPE(elf64Rela.r_info),relocationTypeStr,20);
+
+                printf("0x%-10x0x%-10x%-20s%-10d\n", elf64Rela.r_offset, elf64Rela.r_info,relocationTypeStr,ELF64_R_SYM(elf64Rela.r_info));
+            }
+        }
+
+    }
+
+    // Recovering back the offset
+    fseek(fp,currOff,SEEK_SET);
+}
+
+
+
+
+
+
+
+/**
+ * This function prints relocation entries in all relocation-related sections
+ * @param fp File pointer to the file
+ * @param f16bytes ELF file first 16 bytes
+ */
+static void
+kelfv_print_relocations(FILE * fp , const u8 * f16bytes){
+
+    // Setting the file pointer pointing to the first of the file
+    fseek(fp,0,SEEK_SET);
+
+    if (f16bytes[EI_CLASS] == ELFCLASS32) {
+
+        // Reading ELF header
+        Elf32_Ehdr elf32Ehdr;
+        fread(&elf32Ehdr,1,sizeof(Elf32_Ehdr),fp);
+
+        // Check if section headers table exist
+        if (! elf32Ehdr.e_shnum)
+            printf("[INFO] No sections exist in this file\n");
+        else {
+
+            // Seeking to the start of the sections' table
+            fseek(fp,elf32Ehdr.e_shoff,SEEK_SET);
+
+
+            // Looping through the sections and find those sections that are REL or RELA
+            Elf32_Shdr elf32Shdr;
+
+
+            for ( u32 i=0; i< elf32Ehdr.e_shnum ; i++){
+                fread(&elf32Shdr,1,sizeof(Elf32_Shdr),fp);
+
+                if (elf32Shdr.sh_type==SHT_REL || elf32Shdr.sh_type==SHT_RELA)
+                    kelfv_extract_relocation_entries(fp,ELFCLASS32,elf32Shdr.sh_offset, elf32Shdr.sh_size ,elf32Shdr.sh_type);
+
+            }
+
+        }
+
+    }
+
+
+    else  if (f16bytes[EI_CLASS] == ELFCLASS64) {
+
+        // Reading ELF header
+        Elf64_Ehdr elf64Ehdr;
+        fread(&elf64Ehdr,1,sizeof(Elf64_Ehdr),fp);
+
+        // Check if section headers table exist
+        if (! elf64Ehdr.e_shnum)
+            printf("[INFO] No sections exist in this file\n");
+        else {
+
+            // Seeking to the start of the sections' table
+            fseek(fp,elf64Ehdr.e_shoff,SEEK_SET);
+
+
+            // Looping through the sections and find those sections that are REL or RELA
+            Elf64_Shdr elf64Shdr;
+
+
+            for ( u32 i=0; i< elf64Ehdr.e_shnum ; i++){
+                fread(&elf64Shdr,1,sizeof(Elf64_Shdr),fp);
+
+                if (elf64Shdr.sh_type==SHT_REL || elf64Shdr.sh_type==SHT_RELA)
+                    kelfv_extract_relocation_entries(fp,ELFCLASS64,elf64Shdr.sh_offset, elf64Shdr.sh_size ,elf64Shdr.sh_type);
+
+            }
+
+        }
+
+
+    } else
+        printf("[ERR] Invalid ELF class 0x%x\n",f16bytes[EI_CLASS]);
+
+
+}
+
+
+
+
+
+
 /**
  * Prints help of the program
  */
@@ -1109,6 +1375,9 @@ kelfv_print_help(void){
     printf("header                    Print ELF header\n");
     printf("sections                  Print ELF sections\n");
     printf("symbols                   Print ELF symbols\n");
+    printf("dynsymbols                Print ELF dynamic symbols\n");
+    printf("relocs                    Print ELF relocation entries\n");
+
     printf("close                     Close specified file\n");
     printf("exit                      Exit kelfv\n");
 
@@ -1147,8 +1416,6 @@ kelfv_start_prompt(regex_t * cmdRegexes){
     while(1){
         printf("kelfv$ ");
         gets(kelfvInputCmd);
-
-
 
 
         if (regexec(&cmdRegexes[KELFV_CMD_REGEX_FILE_CMD_ENUM],kelfvInputCmd,0,NULL,0) == 0){
@@ -1229,6 +1496,25 @@ kelfv_start_prompt(regex_t * cmdRegexes){
                 kelfv_print_sections(ELF_FILE_fp, ELFFileF16Bytes);
         }
 
+        else if (regexec(&cmdRegexes[KELFV_CMD_REGEX_DYNAMIC_SYMBOLS_CMD_ENUM],kelfvInputCmd,0,NULL,0) == 0) {
+
+            // First check if a file has been specified or not
+            if (!ELF_FILE_fp)
+                printf("[ERR] No file has been specified, use 'file FILENAME' cmd\n");
+            else
+                kelfv_print_symbols(ELF_FILE_fp, ELFFileF16Bytes, SHT_DYNSYM);
+        }
+
+        else if (regexec(&cmdRegexes[KELFV_CMD_REGEX_RELOCS_CMD_ENUM],kelfvInputCmd,0,NULL,0) == 0) {
+
+            // First check if a file has been specified or not
+            if (!ELF_FILE_fp)
+                printf("[ERR] No file has been specified, use 'file FILENAME' cmd\n");
+            else
+                kelfv_print_relocations(ELF_FILE_fp, ELFFileF16Bytes);
+        }
+
+
         else if (regexec(&cmdRegexes[KELFV_CMD_REGEX_SEGMENTS_CMD_ENUM],kelfvInputCmd,0,NULL,0) == 0) {
 
             // First check if a file has been specified or not
@@ -1244,7 +1530,7 @@ kelfv_start_prompt(regex_t * cmdRegexes){
             if (!ELF_FILE_fp)
                 printf("[ERR] No file has been specified, use 'file FILENAME' cmd\n");
             else
-                kelfv_print_symbols(ELF_FILE_fp, ELFFileF16Bytes);
+                kelfv_print_symbols(ELF_FILE_fp, ELFFileF16Bytes , SHT_SYMTAB);
         }
 
         else if (regexec(&cmdRegexes[KELFV_CMD_REGEX_CLOSE_FILE_CMD_ENUM],kelfvInputCmd,0,NULL,0) == 0){
